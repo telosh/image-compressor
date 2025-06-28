@@ -16,12 +16,20 @@ interface GoInstance {
   run(instance: WebAssembly.Instance): Promise<void>;
 }
 
+interface Crop {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 interface ProcessOptions {
   format: 'jpeg' | 'png';
   quality: number;
   width: number;
   height: number;
   grayscale: boolean;
+  crop?: Crop;
 }
 
 interface ImageInfo {
@@ -41,6 +49,12 @@ const formatBytes = (bytes: number, decimals = 2) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 };
 
+const presets = {
+  'Icon (1:1)': { width: 256, height: 256 },
+  'Twitter (16:9)': { width: 1200, height: 675 },
+  'OGP (1.91:1)': { width: 1200, height: 630 },
+};
+
 export default function Home() {
   const [wasmReady, setWasmReady] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -58,6 +72,7 @@ export default function Home() {
   const [jpegQuality, setJpegQuality] = useState(80);
   const [width, setWidth] = useState(0);
   const [height, setHeight] = useState(0);
+  const [crop, setCrop] = useState<Crop | null>(null);
   const [keepAspectRatio, setKeepAspectRatio] = useState(true);
   const [grayscale, setGrayscale] = useState(false);
   const [outputFormat, setOutputFormat] = useState<'jpeg' | 'png'>('jpeg');
@@ -102,6 +117,28 @@ export default function Home() {
     }
   };
 
+  const applyPreset = (width: number, height: number) => {
+    if (!originalInfo) return;
+
+    // 画像中央にプリセットサイズを配置
+    const newCropWidth = Math.min(originalInfo.width, width);
+    const newCropHeight = Math.min(originalInfo.height, height);
+    const newCropX = Math.floor((originalInfo.width - newCropWidth) / 2);
+    const newCropY = Math.floor((originalInfo.height - newCropHeight) / 2);
+
+    setCrop({
+      x: newCropX,
+      y: newCropY,
+      width: newCropWidth,
+      height: newCropHeight,
+    });
+
+    // 出力サイズもプリセットに合わせる
+    setWidth(width);
+    setHeight(height);
+    setKeepAspectRatio(false); // プリセット適用時はアスペクト比固定を解除
+  };
+
   const handleProcessImage = async () => {
     if (!selectedFile || !wasmReady || !originalInfo) return;
 
@@ -130,6 +167,9 @@ export default function Home() {
       height: height,
       grayscale: grayscale,
     };
+    if (crop && crop.width > 0 && crop.height > 0) {
+      options.crop = crop;
+    }
     
     const result = window.processImage(imageData, options);
 
@@ -164,6 +204,11 @@ export default function Home() {
       const aspectRatio = originalInfo.width / originalInfo.height;
       setWidth(Math.round(newHeight * aspectRatio));
     }
+  };
+
+  const handleCropChange = (axis: keyof Crop, value: string) => {
+    const intValue = parseInt(value, 10) || 0;
+    setCrop(prev => ({ ...(prev || { x: 0, y: 0, width: 0, height: 0 }), [axis]: intValue }));
   };
 
   return (
@@ -201,6 +246,27 @@ export default function Home() {
               <div className="flex items-center">
                 <input id="aspect-ratio" type="checkbox" checked={keepAspectRatio} onChange={(e) => setKeepAspectRatio(e.target.checked)} disabled={!originalInfo} className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
                 <label htmlFor="aspect-ratio" className="ml-2 block text-sm text-gray-900">アスペクト比を維持</label>
+              </div>
+            </div>
+            
+            {/* 2.5 切り抜き */}
+            <div className={`mb-6 transition-opacity duration-300 ${!originalInfo ? 'opacity-50' : ''}`}>
+              <h3 className="text-lg font-medium text-gray-700 mb-2">2.5 切り抜き (オプション)</h3>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <input type="text" placeholder="X" value={crop?.x ?? ''} onChange={(e) => handleCropChange('x', e.target.value)} disabled={!originalInfo} className="w-full p-2 border rounded-md text-center" />
+                <input type="text" placeholder="Y" value={crop?.y ?? ''} onChange={(e) => handleCropChange('y', e.target.value)} disabled={!originalInfo} className="w-full p-2 border rounded-md text-center" />
+                <input type="text" placeholder="Width" value={crop?.width ?? ''} onChange={(e) => handleCropChange('width', e.target.value)} disabled={!originalInfo} className="w-full p-2 border rounded-md text-center" />
+                <input type="text" placeholder="Height" value={crop?.height ?? ''} onChange={(e) => handleCropChange('height', e.target.value)} disabled={!originalInfo} className="w-full p-2 border rounded-md text-center" />
+              </div>
+              <div>
+                <h4 className="text-sm font-medium text-gray-600 mb-1">プリセット</h4>
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(presets).map(([name, { width, height }]) => (
+                    <button key={name} onClick={() => applyPreset(width, height)} disabled={!originalInfo} className="px-3 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors">
+                      {name}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
             
